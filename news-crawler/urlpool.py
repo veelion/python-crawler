@@ -41,14 +41,22 @@ class UrlDB:
     def set_success(self, url):
         if isinstance(url, str):
             url = url.encode('utf8')
-        self.db.Put(url, self.status_success)
-        return True
+        try:
+            self.db.Put(url, self.status_success)
+            s = True
+        except:
+            s = False
+        return s
 
     def set_failure(self, url):
         if isinstance(url, str):
             url = url.encode('utf8')
-        self.db.Put(url, self.status_failure)
-        return True
+        try:
+            self.db.Put(url, self.status_failure)
+            s = True
+        except:
+            s = False
+        return s
 
     def has(self, url):
         if isinstance(url, str):
@@ -69,7 +77,7 @@ class UrlPool:
         self.name = pool_name
         self.db = UrlDB(pool_name)
 
-        self.pool = {}  # host: set([urls]), 记录待下载URL
+        self.todownload = {}  # host: set([urls]), 记录待下载URL
         self.pending = {}  # url: pended_time, 记录已被pend但还未被更新状态（正在下载）的URL
         self.failure = {}  # url: times, 记录失败的URL的次数
         self.failure_threshold = 3
@@ -87,8 +95,8 @@ class UrlPool:
         path = self.name + '.pkl'
         try:
             with open(path, 'rb') as f:
-                self.pool = pickle.load(f)
-            cc = [len(v) for k, v in self.pool]
+                self.todownload = pickle.load(f)
+            cc = [len(v) for k, v in self.todownload]
             print('saved pool loaded! urls:', sum(cc))
         except:
             pass
@@ -97,8 +105,8 @@ class UrlPool:
         path = self.name + '.pkl'
         try:
             with open(path, 'wb') as f:
-                pickle.dump(self.pool, f)
-            print('self.pool saved!')
+                pickle.dump(self.todownload, f)
+            print('self.todownload saved!')
         except:
             pass
 
@@ -127,21 +135,22 @@ class UrlPool:
                 self.add(url)
         else:
             self.failure[url] = 1
+            self.add(url)
 
     def push_to_pool(self, url):
         host = urlparse.urlparse(url).netloc
         if not host or '.' not in host:
             print('try to push_to_pool with bad url:', url, ', len of ur:', len(url))
             return False
-        if host in self.pool:
-            if url in self.pool[host]:
+        if host in self.todownload:
+            if url in self.todownload[host]:
                 return True
-            self.pool[host].add(url)
-            if len(self.pool[host]) > self.max_hosts[1]:
-                self.max_hosts[1] = len(self.pool[host])
+            self.todownload[host].add(url)
+            if len(self.todownload[host]) > self.max_hosts[1]:
+                self.max_hosts[1] = len(self.todownload[host])
                 self.max_hosts[0] = host
         else:
-            self.pool[host] = set([url])
+            self.todownload[host] = set([url])
         self.in_mem_count += 1
         return True
 
@@ -186,29 +195,29 @@ class UrlPool:
 
         # 2. 再取出普通url
         # 如果某个host有太多url，则每次可以取出3（delta）个它的url
-        if self.max_hosts[1] * 10 > self.in_mem_count:
+        if self.max_hosts[1]  > self.in_mem_count / 10:
             delta = 3
             print('\tset delta:', delta, ', max of host:', self.max_hosts)
         else:
             delta = 1
         left_count = count - len(hubs)
         urls = {}
-        for host in self.pool:
-            if not self.pool[host]:
+        for host in self.todownload:
+            if not self.todownload[host]:
                 continue
             while delta > 0:
                 delta -= 1
-                url = self.pool[host].pop()
+                url = self.todownload[host].pop()
                 urls[url] = url_attr_url
                 self.pending[url] = time.time()
                 if self.max_hosts[0] == host:
                     self.max_hosts[1] -= 1
-                if not self.pool[host]:
+                if not self.todownload[host]:
                     break
             if len(urls) >= left_count:
                 break
         self.in_mem_count -= len(urls)
-        print('To pop:%s, hubs: %s, urls: %s, hosts:%s' % (count, len(hubs), len(urls), len(self.pool)))
+        print('To pop:%s, hubs: %s, urls: %s, hosts:%s' % (count, len(hubs), len(urls), len(self.todownload)))
         urls.update(hubs)
         return urls
 
