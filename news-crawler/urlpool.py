@@ -31,13 +31,6 @@ class UrlDB:
         self.name = db_name + '.urldb'
         self.db = leveldb.LevelDB(self.name)
 
-    def load_from_db(self, status):
-        urls = []
-        for url, _status in self.db.RangeIter():
-            if status == _status:
-                urls.append(url)
-        return urls
-
     def set_success(self, url):
         if isinstance(url, str):
             url = url.encode('utf8')
@@ -77,14 +70,14 @@ class UrlPool:
         self.name = pool_name
         self.db = UrlDB(pool_name)
 
-        self.todownload = {}  # host: set([urls]), 记录待下载URL
-        self.pending = {}  # url: pended_time, 记录已被pend但还未被更新状态（正在下载）的URL
-        self.failure = {}  # url: times, 记录失败的URL的次数
+        self.waiting = {}  # {host: set([urls]), } 按host分组，记录等待下载的URL
+        self.pending = {}  # {url: pended_time, } 记录已被取出（self.pop()）但还未被更新状态（正在下载）的URL
+        self.failure = {}  # {url: times,} 记录失败的URL的次数
         self.failure_threshold = 3
-        self.pending_threshold = 60  # pending的最大时间，过期要重新下载
-        self.in_mem_count = 0
+        self.pending_threshold = 10  # pending的最大时间，过期要重新下载
+        self.waiting_count = 0  # self.waiting 字典里面的url的个数
         self.max_hosts = ['', 0]  # [host: url_count] 目前pool中url最多的host及其url数量
-        self.hub_pool = {}  # {url: last_query_time}
+        self.hub_pool = {}  # {url: last_query_time, }  存放hub url
         self.hub_refresh_span = 0
         self.load_cache()
 
@@ -95,8 +88,8 @@ class UrlPool:
         path = self.name + '.pkl'
         try:
             with open(path, 'rb') as f:
-                self.todownload = pickle.load(f)
-            cc = [len(v) for k, v in self.todownload]
+                self.waiting = pickle.load(f)
+            cc = [len(v) for k, v in self.waiting]
             print('saved pool loaded! urls:', sum(cc))
         except:
             pass
@@ -105,8 +98,8 @@ class UrlPool:
         path = self.name + '.pkl'
         try:
             with open(path, 'wb') as f:
-                pickle.dump(self.todownload, f)
-            print('self.todownload saved!')
+                pickle.dump(self.waiting, f)
+            print('self.waiting saved!')
         except:
             pass
 
@@ -142,16 +135,16 @@ class UrlPool:
         if not host or '.' not in host:
             print('try to push_to_pool with bad url:', url, ', len of ur:', len(url))
             return False
-        if host in self.todownload:
-            if url in self.todownload[host]:
+        if host in self.waiting:
+            if url in self.waiting[host]:
                 return True
-            self.todownload[host].add(url)
-            if len(self.todownload[host]) > self.max_hosts[1]:
-                self.max_hosts[1] = len(self.todownload[host])
+            self.waiting[host].add(url)
+            if len(self.waiting[host]) > self.max_hosts[1]:
+                self.max_hosts[1] = len(self.waiting[host])
                 self.max_hosts[0] = host
         else:
-            self.todownload[host] = set([url])
-        self.in_mem_count += 1
+            self.waiting[host] = set([url])
+        self.waiting_count += 1
         return True
 
     def add(self, url, always=False):
@@ -175,7 +168,7 @@ class UrlPool:
             for url in urls:
                 self.add(url, always)
 
-    def pop(self, count, hubpercent=50):
+    def pop(self, count, hub_percent=50):
         print('\n\tmax of host:', self.max_hosts)
 
         # 取出的url有两种类型：hub=1, 普通=0
@@ -183,7 +176,7 @@ class UrlPool:
         url_attr_hub = 1
         # 1. 首先取出hub，保证获取hub里面的最新url.
         hubs = {}
-        hub_count = count * hubpercent // 100
+        hub_count = count * hub_percent // 100
         for hub in self.hub_pool:
             span = time.time() - self.hub_pool[hub]
             if span < self.hub_refresh_span:
@@ -194,38 +187,28 @@ class UrlPool:
                 break
 
         # 2. 再取出普通url
-        # 如果某个host有太多url，则每次可以取出3（delta）个它的url
-        if self.max_hosts[1]  > self.in_mem_count / 10:
-            delta = 3
-            print('\tset delta:', delta, ', max of host:', self.max_hosts)
-        else:
-            delta = 1
         left_count = count - len(hubs)
         urls = {}
-        for host in self.todownload:
-            if not self.todownload[host]:
+        for host in self.waiting:
+            if not self.waiting[host]:
                 continue
-            while delta > 0:
-                delta -= 1
-                url = self.todownload[host].pop()
-                urls[url] = url_attr_url
-                self.pending[url] = time.time()
-                if self.max_hosts[0] == host:
-                    self.max_hosts[1] -= 1
-                if not self.todownload[host]:
-                    break
+            url = self.waiting[host].pop()
+            urls[url] = url_attr_url
+            self.pending[url] = time.time()
+            if self.max_hosts[0] == host:
+                self.max_hosts[1] -= 1
             if len(urls) >= left_count:
                 break
-        self.in_mem_count -= len(urls)
-        print('To pop:%s, hubs: %s, urls: %s, hosts:%s' % (count, len(hubs), len(urls), len(self.todownload)))
+        self.waiting_count -= len(urls)
+        print('To pop:%s, hubs: %s, urls: %s, hosts:%s' % (count, len(hubs), len(urls), len(self.waiting)))
         urls.update(hubs)
         return urls
 
     def size(self,):
-        return self.in_mem_count
+        return self.waiting_count
 
     def empty(self,):
-        return self.in_mem_count == 0
+        return self.waiting_count == 0
 
 
 def test():
