@@ -92,6 +92,7 @@ class NewsCrawlerAsync:
             self.urlpool.set_status(redirected_url, status)
         # 提取hub网页中的链接, 新闻网页中也有“相关新闻”的链接，按需提取
         if status != 200:
+            self._workers -= 1
             return
         if ishub:
             newlinks = fn.extract_links_re(redirected_url, html)
