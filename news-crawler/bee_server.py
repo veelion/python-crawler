@@ -11,6 +11,8 @@ from urlpool import UrlPool
 urlpool = UrlPool(__file__)
 
 # 初始化urlpool，根据你的需要进行修改
+hub_urls = []
+urlpool.set_hubs(hub_urls, 300)
 urlpool.add('https://news.sina.com.cn/')
 
 # init
@@ -51,7 +53,7 @@ async def task_post(request):
 
 if __name__ == '__main__':
     app.run(
-        host='127.0.0.1',
+        host='0.0.0.0',
         port=8080,
         debug=False,
         access_log=False,
