@@ -89,7 +89,7 @@ class UrlPool:
         try:
             with open(path, 'rb') as f:
                 self.waiting = pickle.load(f)
-            cc = [len(v) for k, v in self.waiting]
+            cc = [len(v) for k, v in self.waiting.items()]
             print('saved pool loaded! urls:', sum(cc))
         except:
             pass
