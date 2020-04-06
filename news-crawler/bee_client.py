@@ -137,15 +137,17 @@ class CrawlerClient:
         }
         await self.send_result(result)
 
+    async def loop_get_urls(self,):
+        print('loop_get_urls() start')
+        while 1:
+            await self.get_urls()
+            await asyncio.sleep(1)
+
     async def loop_crawl(self,):
         print('loop_crawl() start')
-        # asyncio.ensure_future(self.loop_get_urls())
+        asyncio.ensure_future(self.loop_get_urls())
         counter = 0
-        last_get = 0
         while 1:
-            if time.time() - last_get > 1 or self.queue.qsize() < 1:
-                await self.get_urls()
-                last_get = time.time()
             item = await self.queue.get()
             url, url_level = item
             self._workers += 1
