@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.6
+#!/usr/bin/env python3
 # encoding: UTF-8
 # author: veelion
 # file: bee_client.py
@@ -143,7 +143,7 @@ class CrawlerClient:
         counter = 0
         last_get = 0
         while 1:
-            if time.time() - last_get > 5:
+            if time.time() - last_get > 1 or self.queue.qsize() < 1:
                 await self.get_urls()
                 last_get = time.time()
             item = await self.queue.get()
