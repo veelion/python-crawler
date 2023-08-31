@@ -1,2 +1,2 @@
 # python-crawler
-猿人学Python爬虫教程示例源代码 https://www.yuanrenxue.com/crawler/
+异步高并发分布式爬虫框架。
